@@ -73,7 +73,7 @@ km = KMeans(
 
 y_km = km.fit_predict(principalDf)
 
-# plotting the data
+# %% plotting the data
 
 plt.scatter(
     principalDf.iloc[y_km == 0, 0], principalDf.iloc[y_km == 0, 1],
@@ -107,7 +107,7 @@ plt.legend(scatterpoints=1)
 plt.grid()
 plt.show()
 
-# Checking the number of clusters needed for the SVI dataset
+# %% Checking the number of clusters needed for the SVI dataset
 
 distortions = []
 for i in range(1, 51):
@@ -119,8 +119,40 @@ for i in range(1, 51):
     km.fit(x)
     distortions.append(km.inertia_)
 
-# plot
+
 plt.plot(range(1, 51), distortions, marker='o')
 plt.xlabel('Number of clusters')
 plt.ylabel('Distortion')
 plt.show()
+
+# picked 8 clusters basedo n the data
+
+# %% Visualizing the 8 clusters in PCA space
+
+km =  KMeans(
+        n_clusters=8, init='random',
+        n_init=10, max_iter=300,
+        tol=1e-04, random_state=0
+    )
+km.fit(x)
+
+svi_2018['cluster'] = km.labels_
+
+plt.figure()
+plt.scatter(
+    principalDf.iloc[:, 0], principalDf.iloc[:, 1], c = km.labels_
+)
+plt.show()
+
+col_for_desc = col_for_PCA.copy()
+col_for_desc.append('cluster')
+cluster_desc = svi_2018.loc[:, col_for_desc].groupby('cluster').agg('mean')
+
+# %% Isolating NC and SC and using linear regression to calculate the number of opioid deaths as a function of various parameters
+
+nc_county_health = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings North Carolina Data - v1.xlsx', header = [0,1], sheet_name = 'Additional Measure Data')
+nc_overdose_deaths = nc_county_health.loc[1:len(nc_county_health), ('Drug overdose deaths',['# Drug Overdose Deaths'])]
+
+
+
+
