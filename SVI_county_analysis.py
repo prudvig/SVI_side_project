@@ -148,11 +148,89 @@ col_for_desc = col_for_PCA.copy()
 col_for_desc.append('cluster')
 cluster_desc = svi_2018.loc[:, col_for_desc].groupby('cluster').agg('mean')
 
-# %% Isolating NC and SC and using linear regression to calculate the number of opioid deaths as a function of various parameters
+# %% Cleaning up and doing some basic analysis on NC county health data
 
-nc_county_health = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings North Carolina Data - v1.xlsx', header = [0,1], sheet_name = 'Additional Measure Data')
-nc_overdose_deaths = nc_county_health.loc[1:len(nc_county_health), ('Drug overdose deaths',['# Drug Overdose Deaths'])]
+nc_county_health = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings North Carolina Data - v1.xlsx', header = 1, sheet_name = 'Ranked Measure Data')
+nc_county_health = nc_county_health.loc[1:len(nc_county_health)]
 
+nc_county_health_addl_measures = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings North Carolina Data - v1.xlsx', header = 1, sheet_name = 'Additional Measure Data')
+nc_county_health_addl_measures = nc_county_health_addl_measures[1:len(nc_county_health_addl_measures)]
 
+nc_county_health = nc_county_health.merge(nc_county_health_addl_measures, left_on = ['FIPS', 'State', 'County'], right_on = ['FIPS', 'State', 'County'])
+nc_county_health = nc_county_health.loc[:,~nc_county_health.columns.str.contains('CI')]
+nc_county_health = nc_county_health.loc[:,~nc_county_health.columns.str.contains('Z-Score')]
+
+nc_county_health_cluster = nc_county_health.merge(svi_2018[['FIPS', 'cluster']], right_on=['FIPS'], left_on=['FIPS'])
+
+summary_nc = nc_county_health_cluster[['Life Expectancy', 'Child Mortality Rate', 'Drug Overdose Mortality Rate', 'Median Household Income','Teen Birth Rate','cluster','Suicide Rate (Age-Adjusted)']].groupby('cluster').agg('mean')
+
+# %% Performing the same data import and data cleaning on SC
+
+sc_county_health = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings South Carolina Data - v1.xlsx', header = 1, sheet_name = 'Ranked Measure Data')
+sc_county_health = sc_county_health.loc[1:len(sc_county_health)]
+
+sc_county_health_addl_measures = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings South Carolina Data - v1.xlsx', header = 1, sheet_name = 'Additional Measure Data')
+sc_county_health_addl_measures = sc_county_health_addl_measures[1:len(sc_county_health_addl_measures)]
+
+sc_county_health = sc_county_health.merge(sc_county_health_addl_measures, left_on = ['FIPS', 'State', 'County'], right_on = ['FIPS', 'State', 'County'])
+sc_county_health = sc_county_health.loc[:,~sc_county_health.columns.str.contains('CI')]
+sc_county_health = sc_county_health.loc[:,~sc_county_health.columns.str.contains('Z-Score')]
+
+sc_county_health_cluster = sc_county_health.merge(svi_2018[['FIPS', 'cluster']], right_on=['FIPS'], left_on=['FIPS'])
+
+summary_sc = sc_county_health_cluster[['Life Expectancy', 'Child Mortality Rate', 'Drug Overdose Mortality Rate', 'Median Household Income','Teen Birth Rate','cluster','Suicide Rate (Age-Adjusted)']].groupby('cluster').agg('mean')
+
+# %% Take a look at national data
+
+# Load in the dataset related to county health measures and outcomes
+national_county_health = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings Data - v1.xlsx', header = 1, sheet_name = 'Ranked Measure Data')
+national_county_health = national_county_health.loc[1:len(national_county_health)]
+
+national_county_health_addl_measures = pd.read_excel(r'G:\My Drive\School\Side Project\SVI side project\SVI_side_project\2021 County Health Rankings Data - v1.xlsx', header = 1, sheet_name = 'Additional Measure Data')
+national_county_health_addl_measures = national_county_health_addl_measures[1:len(national_county_health_addl_measures)]
+
+# Merge the two excel sheets from teh datasets
+national_county_health = national_county_health.merge(national_county_health_addl_measures, left_on = ['FIPS', 'State', 'County'], right_on = ['FIPS', 'State', 'County'])
+national_county_health = national_county_health.loc[:,~national_county_health.columns.str.contains('CI')]
+national_county_health = national_county_health.loc[:,~national_county_health.columns.str.contains('Z-score')]
+
+national_county_health_copy = national_county_health.copy()
+
+# Remove columns that have unreliable in them
+national_county_health_copy = national_county_health_copy[national_county_health_copy['Unreliable'].isna() == True]
+
+# Drop columns with over 50% Null values
+perc = 50.0 # Like N %
+min_count =  int(((100-perc)/100)*national_county_health_copy.shape[0] + 1)
+national_county_health_copy = national_county_health_copy.dropna(axis=1, 
+                thresh=min_count)
+
+national_county_health_cluster = national_county_health_copy.merge(svi_2018[['FIPS', 'cluster']], right_on=['FIPS'], left_on=['FIPS'], how = 'inner')
+
+summary_national = national_county_health_cluster[['Life Expectancy', 'Child Mortality Rate', 'Drug Overdose Mortality Rate', 'Median Household Income','Teen Birth Rate','cluster','Suicide Rate (Age-Adjusted)']].groupby('cluster').agg('mean')
+
+print(national_county_health_cluster.groupby('cluster').size())
+
+for i in range(0,8):
+    plt.figure(i+1)
+    sns.distplot(national_county_health_cluster[national_county_health_cluster['cluster'] == i]['Drug Overdose Mortality Rate'], bins = 20)
+    
+cluster_4 = national_county_health_cluster[national_county_health_cluster['cluster'] == 4]
+
+sns.scatterplot(data = national_county_health_cluster, x = '% Insufficient Sleep', y = 'Suicide Rate (Age-Adjusted)')
+
+# Filter values of suicide rate using whiskers of a box-whisker plot (median +/- 1.5*IQR). Note that there are interesting findings at the extremes, we are just limiting the range to find correlations that are interesting
+q3, q1 = np.percentile(national_county_health_cluster['Suicide Rate (Age-Adjusted)'].dropna(), [75 ,25])
+iqr = q3 - q1
+upper_bound = np.median(national_county_health_cluster['Suicide Rate (Age-Adjusted)'].dropna()) + 1.5*iqr
+lower_bound = np.median(national_county_health_cluster['Suicide Rate (Age-Adjusted)'].dropna()) - 1.5*iqr
+
+suicide_filtered = national_county_health_cluster[(national_county_health_cluster['Suicide Rate (Age-Adjusted)'] > lower_bound) & (national_county_health_cluster['Suicide Rate (Age-Adjusted)'] < upper_bound)]
+
+suicide_filtered_numeric = suicide_filtered._get_numeric_data()
+
+suicide_corr = suicide_filtered_numeric.corr()['Suicide Rate (Age-Adjusted)'][:]
+
+sns.scatterplot(data = suicide_filtered_numeric, x = 'Juvenile Arrest Rate', y = 'Suicide Rate (Age-Adjusted)')
 
 
