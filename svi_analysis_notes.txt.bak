@@ -1,0 +1,32 @@
+2021-12-15
+	- Data sometimes has a long tail for most variables. One option is to considering binning them to get rid of this issue
+	- Rio Arriba county, NM removed to get rid of the outliers that are in the long tail of the data
+	- Note that confidence intervals and z-scores are being dropped from the national county health dataset. Not sure what information is stored
+	  in here but it's being omitted from the dataset
+	- Created a running list of useful functions called useful_functions.py
+	- Subset the national county health dataset down to just a few variables
+	- Priority To Do for tomorrow:
+		- Add in drunk driving fatalities to the dataset
+		- Create the rank ordered and "at-risk" variables in the nch dataset
+		- Create a table of variables and see what else can be included in the predictive model for suicidality, overdose deaths, drunk driving fatalities
+
+2021-12-16
+	- Consider including mental health provider ratio in the data by removing all the data up to the colon
+
+2021-12-18
+	- At a point where it seems like it will take me some time to generate the code in Python to do all the logistic regression.
+	  It's easy in R but a bit more challenging in Python
+	- Add in to Rmarkdown file section for doing ANOVA after consulation with Dr. LaBarr
+	- To do for tomorrow:
+		- Check out variables from the county health dataset to use in a logistic regression model (might need to do some data processing)
+		- Create new logistic regression model using this
+		- Create models using other algorithms that we've learned in class
+
+2021-12-20
+	- Feature creation ideas
+		- Ratio of access to exercise opportunities to obesity/physically inactive/obesity/smokers
+		- Access to healthy lifestyle which is multiplication of access to exercise * food environment index
+		- Mental health providers and primary care physicians/area (remember to drop mental health providers)
+		- New ratio looking at Uninsured population to primary care and mental health provider ratio
+		- Maybe a new variable looking at % limited access to healthy foods/area (this variable is about how challenging is it to get to healthy food)
+		- 

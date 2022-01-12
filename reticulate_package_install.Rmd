@@ -1,0 +1,18 @@
+This notebook has the packages that are necessary to install in R prior to running the previous code
+
+
+```{r}
+install.packages(reticulate)
+library(reticulate)
+your_path = ''
+install_miniconda()
+py_install("scikit-learn")
+py_install("pandas")
+py_install("matplotlib")
+py_install("seaborn")
+py_install("xlrd")
+py_install("openpyxl")
+
+```
+
+

@@ -1,0 +1,478 @@
+Import relevant R libraries
+
+```{r}
+
+library(tidyverse)
+library(brglm)
+library(car)
+library(mgcv)
+library(DescTools)
+library(ggplot2)
+library(ROCR)
+library(InformationValue)
+library(VGAM)
+library(caret)
+library(randomForest)
+library(xgboost)
+library(reticulate)
+
+```
+
+Import relevant python packages
+
+```{python}
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+import openpyxl
+
+```
+
+
+Defining some useful functions that will be used later
+```{python}
+
+def simple_hist(df, list_of_vars):
+    for var in list_of_vars:
+        plt.figure()
+        sns.displot(data = df, x = var)
+        plt.show()
+
+```
+Initial data exploration
+```{python}
+svi_2018 = pd.read_csv("https://test-bucket-prg.s3.amazonaws.com/SVI2018_US_COUNTY.csv")
+
+# Taking only the variables that are important and can be used for modeling from the SVI dataset 
+svi_cols = ['EP_POV','EP_UNEMP','EP_PCI','EP_NOHSDP','EP_AGE65','EP_AGE17','EP_DISABL','EP_SNGPNT','EP_MINRTY','EP_LIMENG','EP_MUNIT','EP_MOBILE','EP_CROWD','EP_NOVEH','EP_GROUPQ']
+
+# ID cols from the SVI dataset
+id_cols = ['ST', 'STATE', 'ST_ABBR','COUNTY','FIPS','LOCATION','AREA_SQMI','E_TOTPOP']
+
+# Plot a histogram of all the variables from the svi_cols variable to do outlier analysis and initial data exploration
+simple_hist(svi_2018, svi_cols)
+    
+#Remove the entry for  Rio Arriba county, NM because it shows a really weird POV and UNEMP rate
+svi_2018 = svi_2018[svi_2018.FIPS != 35039] 
+
+#Check out the histogram again with the offending entry removed
+simple_hist(svi_2018, svi_cols)
+
+# Check if there are any missing values in the dataset
+svi_2018[svi_cols].isna().sum().reset_index(name="n").plot.bar(x='index', y='n', rot=45)
+
+```
+
+Taking a look at national county health data
+
+```{python}
+
+# Load in the dataset related to county health measures and outcomes
+national_county_health = pd.read_excel('https://test-bucket-prg.s3.amazonaws.com/2021+County+Health+Rankings+Data+-+v1.xlsx', header = 1, sheet_name = 'Ranked Measure Data', engine = 'openpyxl')
+national_county_health = national_county_health.loc[1:len(national_county_health)]
+
+national_county_health_addl_measures = pd.read_excel('https://test-bucket-prg.s3.amazonaws.com/2021+County+Health+Rankings+Data+-+v1.xlsx', header = 1, sheet_name = 'Additional Measure Data', engine = 'openpyxl')
+national_county_health_addl_measures = national_county_health_addl_measures[1:len(national_county_health_addl_measures)]
+
+# Merge the two excel sheets from the datasets and drop varaibles that are the confidence intervals and the z-scores of the counties
+national_county_health = national_county_health.merge(national_county_health_addl_measures, left_on = ['FIPS', 'State', 'County'], right_on = ['FIPS', 'State', 'County'])
+national_county_health = national_county_health.loc[:,~national_county_health.columns.str.contains('CI')]
+national_county_health = national_county_health.loc[:,~national_county_health.columns.str.contains('Z-score')]
+
+national_county_health_copy = national_county_health.copy()
+
+# Remove columns that have unreliable in them
+national_county_health_copy = national_county_health_copy[national_county_health_copy['Unreliable'].isna() == True].reset_index()
+
+# Drop columns with over 50% Null values
+perc = 50.0 # Like N %
+min_count =  int(((100-perc)/100)*national_county_health_copy.shape[0] + 1)
+national_county_health_copy = national_county_health_copy.dropna(axis=1, 
+                thresh=min_count)
+
+tar_var = ['Life Expectancy', 'Child Mortality Rate', 'Drug Overdose Mortality Rate', 'Teen Birth Rate','Suicide Rate (Age-Adjusted)', '% Driving Deaths with Alcohol Involvement']
+nch_id_var = ['FIPS' , 'State', 'County']
+
+#Check out the histogram again with the offending entry removed
+simple_hist(national_county_health_copy, tar_var)
+
+```
+Performing the analysis in a slightly diferent manner
+
+```{python}
+
+national_county_health_copy['black_pctile'] = national_county_health_copy['% Black'].rank(pct = True)
+national_county_health_copy['asian_pctile'] = national_county_health_copy['% Asian'].rank(pct = True)
+national_county_health_copy['hispanic_pctile'] = national_county_health_copy['% Hispanic'].rank(pct = True)
+national_county_health_copy['native_pctile'] = national_county_health_copy['% American Indian & Alaska Native'].rank(pct = True)
+national_county_health_copy['white_pctile'] = national_county_health_copy['% Non-Hispanic White'].rank(pct = True)
+
+def racial_pctile(col1, col2, col3, col4, col5):
+    if col1 >= 0.9:
+        race = '10th pctile Native'
+    elif col2 >= 0.9:
+        race = '10th pctile Asian'
+    elif col3 >= 0.9:
+        race = '10th pctile Black'
+    elif col4 >= 0.9:
+        race = '10th pctile Hispanic'
+    elif col5 >= 0.9:
+        race = '10th pctile White'
+    else:
+        race = 'Other/Mixed'
+    return race
+
+national_county_health_copy['Race Percentile'] = ''
+
+for i in range(0,len(national_county_health_copy)):
+    black = national_county_health_copy['black_pctile'][i]
+    asian = national_county_health_copy['asian_pctile'][i]
+    hispanic = national_county_health_copy['hispanic_pctile'][i]
+    native = national_county_health_copy['native_pctile'][i]
+    white = national_county_health_copy['white_pctile'][i]
+    # print(racial_makeup(black, asian, hispanic, native))
+    # print(i)
+    national_county_health_copy['Race Percentile'][i] = racial_pctile(native, asian, black, hispanic, white)
+
+# Check the impact of race using simple means 
+suicide_rate_race_2 = national_county_health_copy.groupby('Race Percentile')['Suicide Rate (Age-Adjusted)'].mean()
+overdose_death_rate_race_2 = national_county_health_copy.groupby('Race Percentile')['Drug Overdose Mortality Rate'].mean()
+teen_birth_rate_race_2 = national_county_health_copy.groupby('Race Percentile')['Teen Birth Rate'].mean()
+pct_drunk_driving_deaths_2 = national_county_health_copy.groupby('Race Percentile')['% Driving Deaths with Alcohol Involvement'].mean()
+
+```
+Create a simpler list of  variables from the national county health data (this is provisional, additional predictor variables will be added in the future)
+
+```{python}
+
+nch_simple = national_county_health_copy[nch_id_var + tar_var]
+nch_simple['suicide_rank'] = nch_simple['Suicide Rate (Age-Adjusted)'].rank(pct = True)
+nch_simple['suicide_risk'] = (nch_simple['suicide_rank'] >= 0.9) * 1
+
+nch_simple_svi = nch_simple.merge(svi_2018[['FIPS'] + svi_cols], right_on=['FIPS'], left_on=['FIPS'], how = 'inner')
+
+```
+
+Logistic regression model (note here that the variables included in the logistic regression model were previously identified using VIF and eliminated one at a time)
+
+```{r}
+
+nch_simple_svi = py$nch_simple_svi
+nch_simple_svi = nch_simple_svi %>% drop_na()
+
+full.model = glm(formula = suicide_risk ~ EP_UNEMP + EP_SNGPNT + EP_MINRTY + EP_LIMENG + EP_MUNIT + EP_MOBILE + EP_CROWD + EP_NOVEH + EP_GROUPQ, data = nch_simple_svi, family = binomial(link = "logit"))
+empty.model = glm(formula = suicide_risk ~ 1, family = binomial(link = "logit"), 
+    data = nch_simple_svi)
+
+back.model.bic = step(full.model, direction = "backward", k = log(nrow(nch_simple_svi)))
+
+int.model = glm(suicide_risk ~ (EP_UNEMP + EP_SNGPNT + EP_LIMENG + 
+    EP_MUNIT + EP_CROWD)^2, data = nch_simple_svi, family = binomial(link = "logit"))
+
+summary(back.model.bic)
+
+forward.model1 <- step(back.model.bic,
+                      scope = list(lower = back.model.bic,
+                                   upper = int.model),
+                      direction = "forward", 
+                      k = log(nrow(nch_simple_svi)))
+
+summary(forward.model1)
+
+nch_simple_svi_copy = nch_simple_svi
+
+nch_simple_svi_copy$prob = predict(forward.model1, type = "response")
+
+```
+
+Building a new logistic regression model using things (I think) policy can address
+
+```{python}
+
+#%%% Identify key variables 
+
+nch_policy_var = ['% Fair or Poor Health', '% Adults with Obesity', '% Smokers','% Physically Inactive', '% With Access to Exercise Opportunities', 
+                  '% Excessive Drinking', 'Chlamydia Rate','# Primary Care Physicians', 'Primary Care Physicians Ratio','# Mental Health Providers','Mental Health Provider Ratio', 'Food Environment Index',
+                  '# Dentists','Dentist Ratio','Preventable Hospitalization Rate','% With Annual Mammogram','% Completed High School','% Some College', '% Unemployed',
+                  '% Children in Poverty','Income Ratio','% Children in Single-Parent Households','Social Association Rate','Violent Crime Rate','Average Daily PM2.5','% Severe Housing Problems','Severe Housing Cost Burden','Overcrowding','Inadequate Facilities',
+                  '% Drive Alone to Work','% Long Commute - Drives Alone','Child Mortality Rate','% Frequent Physical Distress','% Frequent Mental Distress',
+                  '% Adults with Diabetes', 'HIV Prevalence Rate', '% Food Insecure','% Limited Access to Healthy Foods','% Insufficient Sleep', '% Uninsured_y','% Uninsured.1',
+                  'High School Graduation Rate', 'Average Grade Performance','Median Household Income','% Enrolled in Free or Reduced Lunch', 'Segregation index', 'Segregation Index',
+                  'Juvenile Arrest Rate','Traffic Volume','% Broadband Access','% Not Proficient in English']
+
+
+nch_policy = national_county_health_copy[nch_policy_var]
+summary_table = nch_policy.describe()
+
+nch_policy.rename(columns = {'% Uninsured_y': '% Uninsured Adults', '% Uninsured.1':'% Uninsured Children','Segregation index':'Black/White Segregation Index','Segregation Index':'NonWhite/White Segregation Index'}, inplace = True)
+
+nch_policy['Mental Health Provider Ratio'] = nch_policy['Mental Health Provider Ratio'].apply(lambda x: float(str(x).partition(':')[0]))
+nch_policy['Primary Care Physicians Ratio'] = nch_policy['Primary Care Physicians Ratio'].apply(lambda x: float(str(x).partition(':')[0]))
+nch_policy['Dentist Ratio'] = nch_policy['Dentist Ratio'].apply(lambda x: float(str(x).partition(':')[0]))
+
+#%%% Impute missing values
+import numpy as np
+from sklearn.impute import KNNImputer
+
+imputer = KNNImputer(n_neighbors = 5, weights = "uniform")
+nch_policy_imputed = pd.DataFrame(imputer.fit_transform(nch_policy), columns = nch_policy.columns)
+
+#%%% Feature creation (additional features if we build a different modeling algorithm)
+svi_2018_geo = svi_2018[['STATE','ST_ABBR','COUNTY','FIPS','LOCATION','AREA_SQMI','E_TOTPOP']]
+
+nch_policy_imputed['FIPS'] = national_county_health_copy['FIPS']
+nch_policy_imputed = nch_policy_imputed.merge(svi_2018_geo, right_on=['FIPS'], left_on=['FIPS'], how = 'inner')
+
+#%%% Feature creation
+
+drop_vars = ['% Completed High School', '% Frequent Physical Distress', 'Food Environment Index', '% Severe Housing Problems', '% Insufficient Sleep', '% Frequent Mental Distress', '% Fair or Poor Health',
+             '% Broadband Access', 'Average Grade Performance', '% Smokers', 'AREA_SQMI','E_TOTPOP', 'High School Graduation Rate','% Drive Alone to Work', 'Median Household Income', '% Enrolled in Free or Reduced Lunch',
+             '% With Annual Mammogram', '% Some College', '# Dentists' ,'# Primary Care Physicians','# Mental Health Providers', '% Adults with Obesity', '% Physically Inactive', '% Children in Poverty', 'Average Daily PM2.5',
+             '% Children in Single-Parent Households','% Adults with Diabetes', 'Income Ratio', '% Food Insecure', '% Excessive Drinking', 'Injury Death Rate', '% Uninsured Children', 'Severe Housing Cost Burden',
+             '% Unemployed','Black/White Segregation Index','Child Mortality Rate']
+
+#%%% Feature creation
+
+drop_vars2 = ['AREA_SQMI','E_TOTPOP']
+
+nch_policy_imputed['Mental Health Providers per sqm'] = nch_policy_imputed['# Mental Health Providers']/nch_policy_imputed['AREA_SQMI']
+nch_policy_imputed['Primary Care Physicians per sqm'] = nch_policy_imputed['# Primary Care Physicians']/nch_policy_imputed['AREA_SQMI']
+nch_policy_imputed['Healthy Lifestyle Access'] = nch_policy_imputed['% With Access to Exercise Opportunities']*(100 - nch_policy_imputed['% Limited Access to Healthy Foods'])/10000
+nch_policy_imputed['Uninsured Mental Health Provider Ratio'] = nch_policy_imputed['Mental Health Provider Ratio']*nch_policy_imputed['% Uninsured Adults']/100 
+nch_policy_imputed['Uninsured Primary Care provider Ratio'] = nch_policy_imputed['Primary Care Physicians Ratio']*nch_policy_imputed['% Uninsured Adults']/100 
+
+nch_policy_imputed = nch_policy_imputed.drop(['# Primary Care Physicians', '# Mental Health Providers'] + drop_vars2, axis = 1)
+
+# change colnames to make it easier to work with them in R
+nch_colnames = list(nch_policy_imputed.columns) 
+new_nch_colnames = list(map(lambda x: x.replace(" ", "_").replace("%","pct").replace("#","no").replace("/","_").replace("-"," ").replace("   ", "_").lower(), nch_colnames)) 
+col_rename_dict = {i:j for i,j in zip(nch_colnames,new_nch_colnames)}
+nch_policy_imputed.rename(columns=col_rename_dict, inplace=True)
+
+# Add in suicide risk target var
+nch_policy_imputed = nch_policy_imputed.merge(nch_simple[['FIPS','suicide_risk']], right_on=['FIPS'], left_on=['fips'], how = 'inner')
+policy_logreg_data = nch_policy_imputed.drop(['fips','state','st_abbr','county','location', 'FIPS'], axis = 1)
+policy_logreg_data['water_violation'] = national_county_health_copy['Presence of Water Violation'].apply(lambda x: str(x))
+
+```
+
+Perform logistic regression in R
+```{r}
+
+policy_logreg_data = py$policy_logreg_data
+policy_logreg_data = policy_logreg_data %>% drop_na()
+policy_logreg_data$water_violation = as.factor(policy_logreg_data$water_violation)
+policy_logreg_data$suicide_risk = as.factor(policy_logreg_data$suicide_risk)
+policy_logreg_data = policy_logreg_data %>% 
+    rename(pct_children_in_single_parent_households =`pct_children_in_single parent_households`,
+           pct_long_commute_drives_alone = `pct_long_commute_ _drives_alone`)
+
+# train-validation-test split
+set.seed(123)
+dt = sort(sample(nrow(policy_logreg_data),nrow(policy_logreg_data)*0.6)) 
+
+train = policy_logreg_data[dt,]
+test.and.validate = policy_logreg_data[-dt,]
+
+dt2 = sort(sample(nrow(test.and.validate),nrow(test.and.validate)*0.5))
+validation = test.and.validate[dt2,]
+test = test.and.validate[-dt2,]
+
+train.lr = train
+validation.lr = validation
+
+# building the logistic regression model
+full.model = glm(formula = suicide_risk ~ ., data = train, family = binomial(link = "logit"))
+empty.model = glm(formula = suicide_risk ~ 1, family = binomial(link = "logit"), 
+    data = train.lr)
+
+# AIC for variable selection
+back.model.bic = step(full.model, direction = "backward", k = 2)
+
+summary(back.model.bic)
+
+train.lr$p_hat <- predict(back.model.bic, newdata = train.lr, type = "response")
+validation.lr$p_hat <- predict(back.model.bic, newdata = validation.lr, type = "response")
+
+plotROC(train.lr$suicide_risk, train.lr$p_hat)
+plotROC(validation.lr$suicide_risk, validation.lr$p_hat)
+
+# Creating interaction variables
+full.int.model = glm(formula = suicide_risk ~ (pct_physically_inactive + pct_excessive_drinking + 
+    mental_health_provider_ratio + no_dentists + pct_with_annual_mammogram + 
+    pct_completed_high_school + pct_some_college + average_daily_pm2.5 + 
+    pct_severe_housing_problems + inadequate_facilities + pct_long_commute_drives_alone + 
+    pct_frequent_physical_distress + hiv_prevalence_rate + pct_insufficient_sleep + 
+    pct_uninsured_children + pct_not_proficient_in_english + 
+    mental_health_providers_per_sqm + primary_care_physicians_per_sqm + 
+    uninsured_mental_health_provider_ratio + uninsured_primary_care_provider_ratio)^2, 
+    family = binomial(link = "logit"), data = train)
+
+forward.model <- step(back.model.bic,
+                      scope = list(lower = back.model.bic,
+                                   upper = full.int.model),
+                      direction = "forward", 
+                     k = 2)
+
+```
+
+Create random forest model
+```{r}
+train.rf = train
+validation.rf = validation
+
+# Random Forest model
+set.seed(420)
+rf.train <- randomForest(as.factor(suicide_risk) ~ ., data = train.rf, ntree = 500, importance = TRUE)
+rf.train$err.rate
+
+plot(rf.train, main = "Number of Trees Compared to MSE")
+
+ggplot(data = data.frame(rf.train$err.rate))+
+  geom_line(aes(x = c(1:500), y = OOB), size = 1) +
+  xlab('Number of Trees') +
+  ylab('Error Rate') +
+  theme_minimal()
+
+# Variables of importance
+all_var = colnames(train)
+pred_var = subset(all_var, !(all_var %in% c("suicide_risk")))
+
+varImpPlot(rf.train,
+           sort = TRUE,
+           n.var = 20,
+           main = "Top 20 - Variable Importance")
+
+var_imp_table = data.frame(importance(rf.train))
+
+set.seed(420)
+tuneRF(x = train[,pred_var], y = train[,"suicide_risk"], 
+       plot = TRUE, ntreeTry = 150, stepFactor = 0.5)
+
+# Add a random variable and see which variables are more or less important than it for variable selection
+train.rf$random <- rnorm(nrow(train))
+
+set.seed(420)
+rf.train.rand <- randomForest(suicide_risk ~ ., data = train.rf, ntree = 150, mtry = 14, importance = TRUE)
+
+varimp = rf.train$importance
+
+# every variable is important!
+train.rf$p_hat <- predict(rf.train, type = "prob")
+plotROC(train.rf$suicide_risk, train.rf$p_hat[,2])
+
+validation.rf$p_hat <- predict(rf.train, newdata = validation, type = "prob")
+plotROC(validation.rf$suicide_risk, validation.rf$p_hat[,2])
+
+
+```
+Create an xgboost model
+
+```{r}
+
+#setup the data matrix for xgboost model
+train.xgb = train
+validation.xgb = validation
+
+all_var = colnames(train.xgb)
+pred_var = subset(all_var, !(all_var %in% c("suicide_risk")))
+train_pred = train.xgb[,pred_var]
+
+train_x = model.matrix(suicide_risk~., data = train.xgb)
+train_y = ifelse(train.xgb[,"suicide_risk"] == "0", 0, 1)
+
+#run xgb model to identify optimal nrounds
+set.seed(420)
+xgb.ins.cv = xgb.cv(data = train_x, label = train_y, subsample = 0.5, nrounds = 50, nfold = 10, objective = "binary:logistic", eval_metric = "auc")
+
+# Given the weirdness of the nrounds, I'm going to optimize nrounds as well between 5 and 18 in increments of 3
+
+tune_grid <- expand.grid(
+nrounds = c(3,6,9,12,15,18),
+eta = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+max_depth = c(1, 3, 5, 7, 9),
+gamma = c(0),
+colsample_bytree = 1,
+min_child_weight = 1,
+subsample = c(0.6, 0.7, 0.8, 0.9, 1)
+)
+
+set.seed(420)
+# xgb.train.caret <- caret::train(x = train_x, y = train_y,
+#   method = "xgbTree",
+#   tuneGrid = tune_grid,
+#   trControl = trainControl(method = 'cv', number = 10), 
+#   objective = "binary:logistic",
+#   eval_metric = 'auc')
+
+xgb.train.caret <- caret::train(x = train_x, y = as.factor(train_y),
+                        method = "xgbTree",
+                        tuneGrid = tune_grid,
+                        trControl = trainControl(method = 'cv', # Using 10-fold cross-validation
+                                                 number = 10),
+                       eval_metric = 'auc')
+
+plot(xgb.train.caret)
+
+results.xgb.caret = xgb.train.caret$results
+
+xgb.ins.cv.final = xgboost(data = train_x, label = train_y, subsample = 0.6, nrounds = 3, eta = 0.3, max_depth = 9, objective = "binary:logistic", eval_metric = 'auc')
+
+xgb.importance(feature_names = colnames(train_x), model = xgb.ins.cv.final)
+
+xgb.ggplot.importance(xgb.importance(feature_names = colnames(train_x), model = xgb.ins.cv.final))
+
+# Check whether a random variable does bettter
+
+train.xgb.rand = train
+train.xgb.rand$random = rnorm(nrow(train.xgb.rand))
+
+train_x_rand <- model.matrix(suicide_risk ~ ., data = train.xgb.rand)
+train_y <- as.numeric(as.character(train.xgb.rand$suicide_risk))
+
+xgb.ins.cv.final.2 = xgboost(data = train_x_rand, label = train_y, subsample = 0.6, nrounds = 3, eta = 0.3, max_depth = 9, objective = "binary:logistic", eval_metric = 'auc')
+
+xgb.varimp = data.frame(xgb.importance(feature_names = colnames(train_x_rand), model = xgb.ins.cv.final.2))
+
+xgb.ggplot.importance(xgb.importance(feature_names = colnames(train_x_rand), model = xgb.ins.cv.final.2))
+
+predvar.xgb = xgb.varimp[xgb.varimp$Gain > xgb.varimp[xgb.varimp$Feature == 'random','Gain'],'Feature']
+
+train_x_imp = train_x_rand[,predvar.xgb]
+
+xgb.ins.cv.final.3 = xgboost(data = train_x_imp, label = train_y, subsample = 0.6, nrounds = 3, eta = 0.3, max_depth = 9, objective = "binary:logistic", eval_metric = 'auc')
+
+
+train.xgb$phat_xgb <- predict(xgb.ins.cv.final.3,train_x_imp)
+train.xgb$phat_xgb_old = predict(xgb.ins.cv.final, train_x)
+
+plotROC(train.xgb$suicide_risk, train.xgb$phat_xgb)
+plotROC(train1$suicide_risk, train1$phat_xgb_old)
+
+# check xgb performance on validation set
+validation.xgb = validation
+
+all_var = colnames(test)
+pred_var = subset(all_var, !(all_var %in% c("suicide_risk")))
+validation_pred = validation[,c(pred_var,"suicide_risk")]
+
+validation_x = model.matrix(suicide_risk~., data = validation.xgb)
+validation_y = ifelse(test[,"suicide_risk"] == "0", 0, 1)
+validation_x_varimp = validation_x[,predvar.xgb]
+
+validation.xgb$phat_xgb = predict(xgb.ins.cv.final, newdata = validation_x, type = "class")
+validation.xgb$phat_xgb_varimp = predict(xgb.ins.cv.final.3, newdata = validation_x_varimp, type = "class")
+
+plotROC(validation.xgb$suicide_risk, validation.xgb$phat_xgb)
+plotROC(validation.xgb$suicide_risk, validation.xgb$phat_xgb_varimp)
+
+```
+
+
+
+
