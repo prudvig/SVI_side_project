@@ -6,11 +6,12 @@ Project Title:
 Exploring the intersection of demographics, health infrastructure and mental health outcomes
 
 Project Description:
-I've been interested on the intersection of demographics, health infrastructure and mental health outcomes for some time now.  The key indicators I've used to define mental health outcomes are drug overdose death rate and suicide rate.
-This analysis has been done at a county level for the United States
+I've been interested on the intersection of demographics, health infrastructure and mental health outcomes for some time now.  The key indicators I've used to define mental health outcomes are drug overdose death rate and suicide rate. This analysis has been done at a county level for the United States
+
 Two datasets are used (which are uploaded to my AWS S3 bucket):
 1. County Health Dataset: https://www.countyhealthrankings.org/
 2. CDC's Social Vulnerability Index: https://www.atsdr.cdc.gov/placeandhealth/svi/index.html
+
 This project has a few different aims that it looks to accomplish
 1. Understand the disproportionate relationship (if any) of racial dominance in a county on key indicators of mental health
 2. Use modeling approaches to both understand (explainable AI/ML) and predict whether or not a county will be at high risk for mental health events and what
