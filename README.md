@@ -23,6 +23,13 @@ Coding Langauges Used:
 I have used R and Python and linked them together using the R library reticulate. This has allowed me to do data preprocessing and exploration using Python, and model building in R. R has some useful functionality that isn't present in Python
 (such as stepwise regression techniques as well as easy ways to incorporate pairwise interactions rapidly). In order to properly run the code, please first run the reticulate_package_install.Rmd code prior to running the svi_county_analysis_reticulate.Rmd
 
+Files: 
+
+There are a few different files relevant to this project
+1. SVI_county_analysis_AWS.py - is the script I wrote in Python using the Spyder IDE for the initial analysis and exploration
+2. reticulate_package_install.Rmd - this is the script used to install packages if you don't have reticulate library and the necessary tools to link Python and R together. More information about reticulate is here: https://rstudio.github.io/reticulate/
+3. svi_county_analysis_reticulate.Rmd which has my combined R and Python code
+
 Update as of 1/22/2022:
 - Data has been cleaned and various features have been engineered from the original datasets
 - Preliminary descriptive statistics examining the difference in suicide rates and drug overdose deaths for different racial groups has been done 
