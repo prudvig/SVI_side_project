@@ -1,11 +1,15 @@
-Disclaimer: If you're reading this, this is my first readme for my github project so if it's a little messy, apologies! 
+Disclaimer: 
+
+If you're reading this, this is my first readme for my github project so if it's a little messy, apologies! 
 I've done my best to organize it in the little time I have during grad school. Once I get some time to learn how to do a proper readme,
 expect something hopefully more useful! 
 
 Project Title: 
+
 Exploring the intersection of demographics, health infrastructure and mental health outcomes
 
 Project Description:
+
 I've been interested on the intersection of demographics, health infrastructure and mental health outcomes for some time now.  The key indicators I've used to define mental health outcomes are drug overdose death rate and suicide rate. This analysis has been done at a county level for the United States
 
 Two datasets are used (which are uploaded to my AWS S3 bucket):
