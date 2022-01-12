@@ -19,6 +19,7 @@ health infrastructure indicators are correlated with this
 3. Dashboarding to visualize the data from two datasets above
 
 Coding Langauges Used:
+
 I have used R and Python and linked them together using the R library reticulate. This has allowed me to do data preprocessing and exploration using Python, and model building in R. R has some useful functionality that isn't present in Python
 (such as stepwise regression techniques as well as easy ways to incorporate pairwise interactions rapidly). In order to properly run the code, please first run the reticulate_package_install.Rmd code prior to running the svi_county_analysis_reticulate.Rmd
 
